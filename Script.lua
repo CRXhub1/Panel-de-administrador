@@ -5,26 +5,23 @@ local LocalPlayer = Players.LocalPlayer
 
 local OWNER_NAME = "sm07070707tycon"
 
--- Destruye panel previo
 if CoreGui:FindFirstChild("DeltaMegaAdminPanel") then
     CoreGui.DeltaMegaAdminPanel:Destroy()
 end
 
--- Estados
 local States = {
     Fly = false,
     Noclip = false,
     ESPBox = false,
     ESPName = false,
     GodMode = false,
-    Invisible = false,
     Speed = 16,
     Jump = 50,
     FlySpeed = 50,
     TargetPlayer = ""
 }
 
-local JailedPlayers, espBoxes, espNames, activeJails = {}, {}, {}, {}
+local espBoxes, espNames = {}, {}
 
 -- UI Principal
 local ScreenGui = Instance.new("ScreenGui")
@@ -45,7 +42,6 @@ local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0, 10)
 UICorner.Parent = MainFrame
 
--- Botón Flotante para Abrir
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Size = UDim2.new(0, 50, 0, 50)
 ToggleButton.Position = UDim2.new(0.05, 0, 0.05, 0)
@@ -60,12 +56,10 @@ local TCorner = Instance.new("UICorner")
 TCorner.CornerRadius = UDim.new(0, 25)
 TCorner.Parent = ToggleButton
 
-----------------------------------------------------
--- BOTÓN DE CERRAR ("✕") AL LADO OPUESTO (IZQUIERDA)
-----------------------------------------------------
+-- Botón Cerrar (Izquierda)
 local MinBtn = Instance.new("TextButton")
 MinBtn.Size = UDim2.new(0, 40, 0, 40)
-MinBtn.Position = UDim2.new(0, 5, 0, 5) -- Ubicado arriba a la izquierda
+MinBtn.Position = UDim2.new(0, 5, 0, 5)
 MinBtn.BackgroundColor3 = Color3.fromRGB(220, 40, 40)
 MinBtn.BackgroundTransparency = 0.1
 MinBtn.Text = "✕"
@@ -88,17 +82,12 @@ ToggleButton.MouseButton1Click:Connect(function()
     ToggleButton.Visible = false
 end)
 
--- Sidebar / Menú Lateral
 local Sidebar = Instance.new("Frame")
 Sidebar.Size = UDim2.new(0, 130, 1, -45)
 Sidebar.Position = UDim2.new(0, 0, 0, 45)
 Sidebar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 Sidebar.BorderSizePixel = 0
 Sidebar.Parent = MainFrame
-
-local SidebarCorner = Instance.new("UICorner")
-SidebarCorner.CornerRadius = UDim.new(0, 10)
-SidebarCorner.Parent = Sidebar
 
 local Title = Instance.new("TextLabel")
 Title.Size = UDim2.new(0, 360, 0, 40)
@@ -180,7 +169,6 @@ local function GetTargetPlayers()
     return found
 end
 
--- Funciones UI
 local function CreateButton(parent, text, callback)
     local Btn = Instance.new("TextButton")
     Btn.Size = UDim2.new(1, -10, 0, 35)
@@ -248,7 +236,6 @@ local function CreateSlider(parent, text, min, max, default, callback)
     end)
 end
 
--- Selector
 local PlayerSelector = Instance.new("TextBox")
 PlayerSelector.Size = UDim2.new(1, -10, 0, 40)
 PlayerSelector.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
@@ -268,89 +255,40 @@ PlayerSelector:GetPropertyChangedSignal("Text"):Connect(function()
 end)
 
 ----------------------------------------------------
---- SECCIÓN: COMANDOS ADMIN
+--- COMANDOS REALES VÍA FÍSICA (FLING)
 ----------------------------------------------------
 
-local function BuildJail(cf)
-    local Model = Instance.new("Model")
-    Model.Name = "JailCell"
-    local size, thick = 7, 0.5
-    local offsets = {
-        {Vector3.new(0, -size/2, 0), Vector3.new(size, thick, size)},
-        {Vector3.new(0, size/2, 0), Vector3.new(size, thick, size)},
-        {Vector3.new(-size/2, 0, 0), Vector3.new(thick, size, size)},
-        {Vector3.new(size/2, 0, 0), Vector3.new(thick, size, size)},
-        {Vector3.new(0, 0, -size/2), Vector3.new(size, size, thick)},
-        {Vector3.new(0, 0, size/2), Vector3.new(size, size, thick)}
-    }
-    for _, w in ipairs(offsets) do
-        local p = Instance.new("Part")
-        p.Size = w[2]
-        p.CFrame = cf * CFrame.new(w[1])
-        p.Anchored = true
-        p.CanCollide = true
-        p.Transparency = 0.5
-        p.Color = Color3.fromRGB(255, 0, 0)
-        p.Material = Enum.Material.ForceField
-        p.Parent = Model
+-- Función de Fling Físico Real (Lanza al jugador fuera del mapa)
+local function PerformFling(targetPlayer)
+    if targetPlayer == LocalPlayer or targetPlayer.Name == OWNER_NAME then return end
+    local myChar = LocalPlayer.Character
+    local targetChar = targetPlayer.Character
+
+    if myChar and targetChar and myChar:FindFirstChild("HumanoidRootPart") and targetChar:FindFirstChild("HumanoidRootPart") then
+        local myRoot = myChar.HumanoidRootPart
+        local targetRoot = targetChar.HumanoidRootPart
+
+        local oldCF = myRoot.CFrame
+        local bgV = Instance.new("BodyAngularVelocity")
+        bgV.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+        bgV.AngularVelocity = Vector3.new(0, 99999, 0)
+        bgV.Parent = myRoot
+
+        local start = tick()
+        while tick() - start < 1.5 do
+            if not targetRoot or not myRoot then break end
+            myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 0)
+            RunService.RenderStepped:Wait()
+        end
+
+        bgV:Destroy()
+        myRoot.CFrame = oldCF
     end
-    Model.Parent = workspace
-    return Model
 end
 
-CreateButton(SecAdmin, "⛓️ Jail (Enjaular)", function()
+CreateButton(SecAdmin, "💥 FLING / Destruir (Físico Real)", function()
     for _, p in pairs(GetTargetPlayers()) do
-        if p ~= LocalPlayer and p.Name ~= OWNER_NAME and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            if activeJails[p.Name] then activeJails[p.Name]:Destroy() end
-            local targetCF = p.Character.HumanoidRootPart.CFrame
-            activeJails[p.Name] = BuildJail(targetCF)
-            JailedPlayers[p.Name] = targetCF
-        end
-    end
-end)
-
-CreateButton(SecAdmin, "🔓 Unjail (Liberar)", function()
-    for _, p in pairs(GetTargetPlayers()) do
-        if activeJails[p.Name] then
-            activeJails[p.Name]:Destroy()
-            activeJails[p.Name] = nil
-            JailedPlayers[p.Name] = nil
-        end
-    end
-end)
-
-RunService.Heartbeat:Connect(function()
-    for name, cf in pairs(JailedPlayers) do
-        local p = Players:FindFirstChild(name)
-        if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            p.Character.HumanoidRootPart.CFrame = cf
-        end
-    end
-end)
-
-CreateButton(SecAdmin, "💀 Kill (Ataque Físico)", function()
-    for _, p in pairs(GetTargetPlayers()) do
-        if p ~= LocalPlayer and p.Name ~= OWNER_NAME and p.Character then
-            -- Manda impulsos al Humanoid localmente para forzar caída
-            local hum = p.Character:FindFirstChildOfClass("Humanoid")
-            if hum then hum:ChangeState(Enum.HumanoidStateType.Dead) end
-        end
-    end
-end)
-
-CreateButton(SecAdmin, "🥶 Freeze (Congelar)", function()
-    for _, p in pairs(GetTargetPlayers()) do
-        if p ~= LocalPlayer and p.Name ~= OWNER_NAME and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            p.Character.HumanoidRootPart.Anchored = true
-        end
-    end
-end)
-
-CreateButton(SecAdmin, "🔥 Unfreeze (Descongelar)", function()
-    for _, p in pairs(GetTargetPlayers()) do
-        if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            p.Character.HumanoidRootPart.Anchored = false
-        end
+        PerformFling(p)
     end
 end)
 
@@ -366,36 +304,11 @@ CreateButton(SecAdmin, "🌀 Teleport hacia él", function()
 end)
 
 ----------------------------------------------------
---- SECCIÓN: MI JUGADOR (GOD MODE E INVISIBILIDAD SEPARADOS)
+--- MI JUGADOR
 ----------------------------------------------------
 
 CreateToggle(SecPlayer, "🛡️ Modo God (Inmunidad)", function(state)
     States.GodMode = state
-    local char = LocalPlayer.Character
-    if char then
-        local hum = char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            if state then
-                hum.MaxHealth = math.huge
-                hum.Health = math.huge
-            else
-                hum.MaxHealth = 100
-                hum.Health = 100
-            end
-        end
-    end
-end)
-
-CreateToggle(SecPlayer, "👻 Invisibilidad", function(state)
-    States.Invisible = state
-    local char = LocalPlayer.Character
-    if char then
-        for _, part in pairs(char:GetDescendants()) do
-            if part:IsA("BasePart") or part:IsA("Decal") then
-                part.Transparency = state and 1 or 0
-            end
-        end
-    end
 end)
 
 CreateSlider(SecPlayer, "Velocidad Caminar", 16, 500, 16, function(v) States.Speed = v end)
@@ -417,7 +330,7 @@ RunService.RenderStepped:Connect(function()
 end)
 
 ----------------------------------------------------
---- SECCIÓN: MOVIMIENTO
+--- MOVIMIENTO
 ----------------------------------------------------
 
 local flyVelo
@@ -469,7 +382,7 @@ RunService.Stepped:Connect(function()
 end)
 
 ----------------------------------------------------
---- SECCIÓN: VISUALES
+--- VISUALES
 ----------------------------------------------------
 
 local function CreateESPBox(player)
@@ -562,5 +475,4 @@ end)
 Players.PlayerRemoving:Connect(function(p)
     if espBoxes[p] then espBoxes[p]:Destroy() espBoxes[p] = nil end
     if espNames[p] then espNames[p]:Destroy() espNames[p] = nil end
-    if activeJails[p.Name] then activeJails[p.Name]:Destroy() activeJails[p.Name] = nil end
 end)
