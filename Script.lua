@@ -3,29 +3,30 @@ local RunService = game:GetService("RunService")
 local CoreGui = game:GetService("CoreGui")
 local LocalPlayer = Players.LocalPlayer
 
--- Tu usuario protegido de administrador
 local OWNER_NAME = "sm07070707tycon"
 
--- Elimina el panel previo si ya existe
+-- Destruye panel previo
 if CoreGui:FindFirstChild("DeltaMegaAdminPanel") then
     CoreGui.DeltaMegaAdminPanel:Destroy()
 end
 
--- Estados generales
+-- Estados
 local States = {
     Fly = false,
     Noclip = false,
     ESPBox = false,
     ESPName = false,
+    GodMode = false,
+    Invisible = false,
     Speed = 16,
     Jump = 50,
     FlySpeed = 50,
     TargetPlayer = ""
 }
 
-local JailedPlayers, FrozenPlayers, espBoxes, espNames, activeJails = {}, {}, {}, {}, {}
+local JailedPlayers, espBoxes, espNames, activeJails = {}, {}, {}, {}
 
--- Interfaz Principal
+-- UI Principal
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "DeltaMegaAdminPanel"
 ScreenGui.Parent = CoreGui
@@ -44,7 +45,7 @@ local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0, 10)
 UICorner.Parent = MainFrame
 
--- Botón Flotante
+-- Botón Flotante para Abrir
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Size = UDim2.new(0, 50, 0, 50)
 ToggleButton.Position = UDim2.new(0.05, 0, 0.05, 0)
@@ -59,16 +60,18 @@ local TCorner = Instance.new("UICorner")
 TCorner.CornerRadius = UDim.new(0, 25)
 TCorner.Parent = ToggleButton
 
--- Botón Cerrar (✕)
+----------------------------------------------------
+-- BOTÓN DE CERRAR ("✕") AL LADO OPUESTO (IZQUIERDA)
+----------------------------------------------------
 local MinBtn = Instance.new("TextButton")
 MinBtn.Size = UDim2.new(0, 40, 0, 40)
-MinBtn.Position = UDim2.new(1, -45, 0, 5)
+MinBtn.Position = UDim2.new(0, 5, 0, 5) -- Ubicado arriba a la izquierda
 MinBtn.BackgroundColor3 = Color3.fromRGB(220, 40, 40)
-MinBtn.BackgroundTransparency = 0.2
+MinBtn.BackgroundTransparency = 0.1
 MinBtn.Text = "✕"
 MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 MinBtn.Font = Enum.Font.GothamBold
-MinBtn.TextSize = 20
+MinBtn.TextSize = 22
 MinBtn.Parent = MainFrame
 
 local MinBtnCorner = Instance.new("UICorner")
@@ -85,9 +88,10 @@ ToggleButton.MouseButton1Click:Connect(function()
     ToggleButton.Visible = false
 end)
 
--- Sidebar
+-- Sidebar / Menú Lateral
 local Sidebar = Instance.new("Frame")
-Sidebar.Size = UDim2.new(0, 130, 1, 0)
+Sidebar.Size = UDim2.new(0, 130, 1, -45)
+Sidebar.Position = UDim2.new(0, 0, 0, 45)
 Sidebar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
 Sidebar.BorderSizePixel = 0
 Sidebar.Parent = MainFrame
@@ -97,17 +101,18 @@ SidebarCorner.CornerRadius = UDim.new(0, 10)
 SidebarCorner.Parent = Sidebar
 
 local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 45)
-Title.Text = "👑 DELTA ADMIN"
+Title.Size = UDim2.new(0, 360, 0, 40)
+Title.Position = UDim2.new(0, 50, 0, 5)
+Title.Text = "👑 DELTA ADMIN PANEL"
 Title.TextColor3 = Color3.fromRGB(0, 180, 255)
 Title.Font = Enum.Font.GothamBold
-Title.TextSize = 13
+Title.TextSize = 14
 Title.BackgroundTransparency = 1
-Title.Parent = Sidebar
+Title.Parent = MainFrame
 
 local ContentContainer = Instance.new("Frame")
-ContentContainer.Size = UDim2.new(1, -145, 1, -20)
-ContentContainer.Position = UDim2.new(0, 137, 0, 10)
+ContentContainer.Size = UDim2.new(1, -145, 1, -55)
+ContentContainer.Position = UDim2.new(0, 137, 0, 45)
 ContentContainer.BackgroundTransparency = 1
 ContentContainer.Parent = MainFrame
 
@@ -130,12 +135,12 @@ local function CreateSection(name)
 
     local TabBtn = Instance.new("TextButton")
     TabBtn.Size = UDim2.new(0.9, 0, 0, 35)
-    TabBtn.Position = UDim2.new(0.05, 0, 0, 50 + (#Tabs * 40))
+    TabBtn.Position = UDim2.new(0.05, 0, 0, 10 + (#Tabs * 40))
     TabBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
     TabBtn.Text = name
     TabBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
     TabBtn.Font = Enum.Font.GothamSemibold
-    TabBtn.TextSize = 12
+    TabBtn.TextSize = 11
     TabBtn.Parent = Sidebar
 
     local TabCorner = Instance.new("UICorner")
@@ -175,7 +180,7 @@ local function GetTargetPlayers()
     return found
 end
 
--- Creadores de Componentes UI
+-- Funciones UI
 local function CreateButton(parent, text, callback)
     local Btn = Instance.new("TextButton")
     Btn.Size = UDim2.new(1, -10, 0, 35)
@@ -243,7 +248,7 @@ local function CreateSlider(parent, text, min, max, default, callback)
     end)
 end
 
--- Selector de Objetivo
+-- Selector
 local PlayerSelector = Instance.new("TextBox")
 PlayerSelector.Size = UDim2.new(1, -10, 0, 40)
 PlayerSelector.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
@@ -263,53 +268,42 @@ PlayerSelector:GetPropertyChangedSignal("Text"):Connect(function()
 end)
 
 ----------------------------------------------------
---- SECCIÓN: COMANDOS ADMIN (JAIL Y KICK MEJORADOS)
+--- SECCIÓN: COMANDOS ADMIN
 ----------------------------------------------------
 
--- Función auxiliar para construir una celda física
-local function CreatePhysicalJailBox(cframe)
+local function BuildJail(cf)
     local Model = Instance.new("Model")
     Model.Name = "JailCell"
-    
-    local size = 8
-    local thickness = 0.5
-    local wallColor = Color3.fromRGB(255, 0, 0)
-    local mat = Enum.Material.ForceField
-
+    local size, thick = 7, 0.5
     local offsets = {
-        {Vector3.new(0, -size/2, 0), Vector3.new(size, thickness, size)}, -- Piso
-        {Vector3.new(0, size/2, 0), Vector3.new(size, thickness, size)},  -- Techo
-        {Vector3.new(-size/2, 0, 0), Vector3.new(thickness, size, size)}, -- Izquierda
-        {Vector3.new(size/2, 0, 0), Vector3.new(thickness, size, size)},  -- Derecha
-        {Vector3.new(0, 0, -size/2), Vector3.new(size, size, thickness)}, -- Frente
-        {Vector3.new(0, 0, size/2), Vector3.new(size, size, thickness)}   -- Atrás
+        {Vector3.new(0, -size/2, 0), Vector3.new(size, thick, size)},
+        {Vector3.new(0, size/2, 0), Vector3.new(size, thick, size)},
+        {Vector3.new(-size/2, 0, 0), Vector3.new(thick, size, size)},
+        {Vector3.new(size/2, 0, 0), Vector3.new(thick, size, size)},
+        {Vector3.new(0, 0, -size/2), Vector3.new(size, size, thick)},
+        {Vector3.new(0, 0, size/2), Vector3.new(size, size, thick)}
     }
-
-    for _, wall in ipairs(offsets) do
-        local part = Instance.new("Part")
-        part.Size = wall[2]
-        part.CFrame = cframe * CFrame.new(wall[1])
-        part.Anchored = true
-        part.CanCollide = true
-        part.Transparency = 0.4
-        part.Color = wallColor
-        part.Material = mat
-        part.Parent = Model
+    for _, w in ipairs(offsets) do
+        local p = Instance.new("Part")
+        p.Size = w[2]
+        p.CFrame = cf * CFrame.new(w[1])
+        p.Anchored = true
+        p.CanCollide = true
+        p.Transparency = 0.5
+        p.Color = Color3.fromRGB(255, 0, 0)
+        p.Material = Enum.Material.ForceField
+        p.Parent = Model
     end
-
     Model.Parent = workspace
     return Model
 end
 
-CreateButton(SecAdmin, "⛓️ Jail (Enjaular Real)", function()
+CreateButton(SecAdmin, "⛓️ Jail (Enjaular)", function()
     for _, p in pairs(GetTargetPlayers()) do
         if p ~= LocalPlayer and p.Name ~= OWNER_NAME and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            if activeJails[p.Name] then 
-                activeJails[p.Name]:Destroy() 
-            end
-            
+            if activeJails[p.Name] then activeJails[p.Name]:Destroy() end
             local targetCF = p.Character.HumanoidRootPart.CFrame
-            activeJails[p.Name] = CreatePhysicalJailBox(targetCF)
+            activeJails[p.Name] = BuildJail(targetCF)
             JailedPlayers[p.Name] = targetCF
         end
     end
@@ -325,20 +319,21 @@ CreateButton(SecAdmin, "🔓 Unjail (Liberar)", function()
     end
 end)
 
--- Mantiene forzados a los jugadores dentro del Jail
 RunService.Heartbeat:Connect(function()
-    for name, cframe in pairs(JailedPlayers) do
+    for name, cf in pairs(JailedPlayers) do
         local p = Players:FindFirstChild(name)
         if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            p.Character.HumanoidRootPart.CFrame = cframe
+            p.Character.HumanoidRootPart.CFrame = cf
         end
     end
 end)
 
-CreateButton(SecAdmin, "💀 Kill (Eliminar)", function()
+CreateButton(SecAdmin, "💀 Kill (Ataque Físico)", function()
     for _, p in pairs(GetTargetPlayers()) do
         if p ~= LocalPlayer and p.Name ~= OWNER_NAME and p.Character then
-            p.Character:BreakJoints()
+            -- Manda impulsos al Humanoid localmente para forzar caída
+            local hum = p.Character:FindFirstChildOfClass("Humanoid")
+            if hum then hum:ChangeState(Enum.HumanoidStateType.Dead) end
         end
     end
 end)
@@ -347,7 +342,6 @@ CreateButton(SecAdmin, "🥶 Freeze (Congelar)", function()
     for _, p in pairs(GetTargetPlayers()) do
         if p ~= LocalPlayer and p.Name ~= OWNER_NAME and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
             p.Character.HumanoidRootPart.Anchored = true
-            FrozenPlayers[p.Name] = true
         end
     end
 end)
@@ -356,7 +350,6 @@ CreateButton(SecAdmin, "🔥 Unfreeze (Descongelar)", function()
     for _, p in pairs(GetTargetPlayers()) do
         if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
             p.Character.HumanoidRootPart.Anchored = false
-            FrozenPlayers[p.Name] = nil
         end
     end
 end)
@@ -372,16 +365,39 @@ CreateButton(SecAdmin, "🌀 Teleport hacia él", function()
     end
 end)
 
-CreateButton(SecAdmin, "👢 Kick (Expulsar Protegido)", function()
-    for _, p in pairs(GetTargetPlayers()) do
-        -- Filtro estricto: NUNCA expulsarte a ti ni a tu nombre de usuario
-        if p ~= LocalPlayer and p.Name ~= OWNER_NAME then
-            p:Destroy()
+----------------------------------------------------
+--- SECCIÓN: MI JUGADOR (GOD MODE E INVISIBILIDAD SEPARADOS)
+----------------------------------------------------
+
+CreateToggle(SecPlayer, "🛡️ Modo God (Inmunidad)", function(state)
+    States.GodMode = state
+    local char = LocalPlayer.Character
+    if char then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if state then
+                hum.MaxHealth = math.huge
+                hum.Health = math.huge
+            else
+                hum.MaxHealth = 100
+                hum.Health = 100
+            end
         end
     end
 end)
 
---- SECCIÓN: MI JUGADOR ---
+CreateToggle(SecPlayer, "👻 Invisibilidad", function(state)
+    States.Invisible = state
+    local char = LocalPlayer.Character
+    if char then
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") or part:IsA("Decal") then
+                part.Transparency = state and 1 or 0
+            end
+        end
+    end
+end)
+
 CreateSlider(SecPlayer, "Velocidad Caminar", 16, 500, 16, function(v) States.Speed = v end)
 CreateSlider(SecPlayer, "Poder de Salto", 50, 1000, 50, function(v) States.Jump = v end)
 
@@ -394,27 +410,16 @@ RunService.RenderStepped:Connect(function()
         else
             hum.JumpHeight = (States.Jump / 7)
         end
-    end
-end)
-
-CreateToggle(SecPlayer, "Invisibilidad Dios", function(state)
-    local char = LocalPlayer.Character
-    if state and char then
-        local root = char:FindFirstChild("HumanoidRootPart")
-        local torso = char:FindFirstChild("LowerTorso") or char:FindFirstChild("Torso")
-        if root and torso then
-            local oldPos = root.CFrame
-            char:MoveTo(Vector3.new(oldPos.X, oldPos.Y - 250, oldPos.Z))
-            task.wait(0.2)
-            torso:Destroy()
-            root.CFrame = oldPos
+        if States.GodMode then
+            hum.Health = hum.MaxHealth
         end
-    elseif not state and char then
-        char:BreakJoints()
     end
 end)
 
---- SECCIÓN: MOVIMIENTO ---
+----------------------------------------------------
+--- SECCIÓN: MOVIMIENTO
+----------------------------------------------------
+
 local flyVelo
 CreateToggle(SecMovement, "Vuelo (Fly)", function(state)
     States.Fly = state
@@ -464,10 +469,9 @@ RunService.Stepped:Connect(function()
 end)
 
 ----------------------------------------------------
---- SECCIÓN: VISUALES (CON ESP NOMBRES Y CUADRADO)
+--- SECCIÓN: VISUALES
 ----------------------------------------------------
 
--- ESP Cuadrado Rojo
 local function CreateESPBox(player)
     if player == LocalPlayer then return end
     local function addBox(char)
@@ -489,7 +493,6 @@ local function CreateESPBox(player)
     player.CharacterAdded:Connect(addBox)
 end
 
--- ESP Nombres de Jugadores
 local function CreateESPName(player)
     if player == LocalPlayer then return end
     local function addNameTag(char)
@@ -544,7 +547,6 @@ CreateToggle(SecVisuals, "ESP Jugadores (Nombres)", function(state)
     end
 end)
 
--- Actualiza la distancia de los nombres en tiempo real
 RunService.RenderStepped:Connect(function()
     if States.ESPName and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
         local myRoot = LocalPlayer.Character.HumanoidRootPart
