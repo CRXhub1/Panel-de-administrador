@@ -5,23 +5,26 @@ local LocalPlayer = Players.LocalPlayer
 
 local OWNER_NAME = "sm07070707tycon"
 
+-- Destruye panel previo
 if CoreGui:FindFirstChild("DeltaMegaAdminPanel") then
     CoreGui.DeltaMegaAdminPanel:Destroy()
 end
 
+-- Estados
 local States = {
     Fly = false,
     Noclip = false,
     ESPBox = false,
     ESPName = false,
     GodMode = false,
+    Invisible = false,
     Speed = 16,
     Jump = 50,
     FlySpeed = 50,
     TargetPlayer = ""
 }
 
-local espBoxes, espNames = {}, {}
+local JailedPlayers, FrozenPlayers, espBoxes, espNames, activeJails = {}, {}, {}, {}, {}
 
 -- UI Principal
 local ScreenGui = Instance.new("ScreenGui")
@@ -42,6 +45,7 @@ local UICorner = Instance.new("UICorner")
 UICorner.CornerRadius = UDim.new(0, 10)
 UICorner.Parent = MainFrame
 
+-- Botón Flotante para Abrir
 local ToggleButton = Instance.new("TextButton")
 ToggleButton.Size = UDim2.new(0, 50, 0, 50)
 ToggleButton.Position = UDim2.new(0.05, 0, 0.05, 0)
@@ -56,7 +60,9 @@ local TCorner = Instance.new("UICorner")
 TCorner.CornerRadius = UDim.new(0, 25)
 TCorner.Parent = ToggleButton
 
--- Botón Cerrar (Izquierda)
+----------------------------------------------------
+-- BOTÓN DE CERRAR ("✕") A LA IZQUIERDA
+----------------------------------------------------
 local MinBtn = Instance.new("TextButton")
 MinBtn.Size = UDim2.new(0, 40, 0, 40)
 MinBtn.Position = UDim2.new(0, 5, 0, 5)
@@ -82,6 +88,7 @@ ToggleButton.MouseButton1Click:Connect(function()
     ToggleButton.Visible = false
 end)
 
+-- Menú Lateral
 local Sidebar = Instance.new("Frame")
 Sidebar.Size = UDim2.new(0, 130, 1, -45)
 Sidebar.Position = UDim2.new(0, 0, 0, 45)
@@ -236,6 +243,7 @@ local function CreateSlider(parent, text, min, max, default, callback)
     end)
 end
 
+-- Input Selector de Objetivos
 local PlayerSelector = Instance.new("TextBox")
 PlayerSelector.Size = UDim2.new(1, -10, 0, 40)
 PlayerSelector.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
@@ -255,40 +263,103 @@ PlayerSelector:GetPropertyChangedSignal("Text"):Connect(function()
 end)
 
 ----------------------------------------------------
---- COMANDOS REALES VÍA FÍSICA (FLING)
+--- COMANDOS DE ADMINISTRADOR
 ----------------------------------------------------
 
--- Función de Fling Físico Real (Lanza al jugador fuera del mapa)
-local function PerformFling(targetPlayer)
-    if targetPlayer == LocalPlayer or targetPlayer.Name == OWNER_NAME then return end
-    local myChar = LocalPlayer.Character
-    local targetChar = targetPlayer.Character
-
-    if myChar and targetChar and myChar:FindFirstChild("HumanoidRootPart") and targetChar:FindFirstChild("HumanoidRootPart") then
-        local myRoot = myChar.HumanoidRootPart
-        local targetRoot = targetChar.HumanoidRootPart
-
-        local oldCF = myRoot.CFrame
-        local bgV = Instance.new("BodyAngularVelocity")
-        bgV.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-        bgV.AngularVelocity = Vector3.new(0, 99999, 0)
-        bgV.Parent = myRoot
-
-        local start = tick()
-        while tick() - start < 1.5 do
-            if not targetRoot or not myRoot then break end
-            myRoot.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 0)
-            RunService.RenderStepped:Wait()
-        end
-
-        bgV:Destroy()
-        myRoot.CFrame = oldCF
+-- Construye la celda con 6 paredes físicas sólidas
+local function BuildSolidJail(cf)
+    local Model = Instance.new("Model")
+    Model.Name = "JailCell"
+    local size, thick = 8, 0.6
+    local offsets = {
+        {Vector3.new(0, -size/2, 0), Vector3.new(size, thick, size)}, -- Piso
+        {Vector3.new(0, size/2, 0), Vector3.new(size, thick, size)},  -- Techo
+        {Vector3.new(-size/2, 0, 0), Vector3.new(thick, size, size)}, -- Pared Izq
+        {Vector3.new(size/2, 0, 0), Vector3.new(thick, size, size)},  -- Pared Der
+        {Vector3.new(0, 0, -size/2), Vector3.new(size, size, thick)}, -- Pared Frente
+        {Vector3.new(0, 0, size/2), Vector3.new(size, size, thick)}   -- Pared Atrás
+    }
+    for _, w in ipairs(offsets) do
+        local p = Instance.new("Part")
+        p.Size = w[2]
+        p.CFrame = cf * CFrame.new(w[1])
+        p.Anchored = true
+        p.CanCollide = true
+        p.Transparency = 0.3
+        p.Color = Color3.fromRGB(255, 30, 30)
+        p.Material = Enum.Material.Neon
+        p.Parent = Model
     end
+    Model.Parent = workspace
+    return Model
 end
 
-CreateButton(SecAdmin, "💥 FLING / Destruir (Físico Real)", function()
+CreateButton(SecAdmin, "⛓️ Jail (Enjaular)", function()
     for _, p in pairs(GetTargetPlayers()) do
-        PerformFling(p)
+        if p ~= LocalPlayer and p.Name ~= OWNER_NAME and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            if activeJails[p.Name] then activeJails[p.Name]:Destroy() end
+            local targetCF = p.Character.HumanoidRootPart.CFrame
+            activeJails[p.Name] = BuildSolidJail(targetCF)
+            JailedPlayers[p.Name] = targetCF
+        end
+    end
+end)
+
+CreateButton(SecAdmin, "🔓 Unjail (Liberar)", function()
+    for _, p in pairs(GetTargetPlayers()) do
+        if activeJails[p.Name] then
+            activeJails[p.Name]:Destroy()
+            activeJails[p.Name] = nil
+            JailedPlayers[p.Name] = nil
+        end
+    end
+end)
+
+-- Bucle de bloqueo para mantener al jugador dentro del Jail
+RunService.Heartbeat:Connect(function()
+    for name, cf in pairs(JailedPlayers) do
+        local p = Players:FindFirstChild(name)
+        if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            p.Character.HumanoidRootPart.CFrame = cf
+        end
+    end
+end)
+
+-- Matar por caída al vacío usando Noclip + Impulso Físico
+CreateButton(SecAdmin, "💀 Kill (Caída al Vacío)", function()
+    for _, p in pairs(GetTargetPlayers()) do
+        if p ~= LocalPlayer and p.Name ~= OWNER_NAME and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            task.spawn(function()
+                local root = p.Character.HumanoidRootPart
+                -- Desactiva colisiones del personaje para que atraviese el mapa
+                for _, part in pairs(p.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+                -- Manda el personaje a la zona de muerte subterránea
+                root.CFrame = root.CFrame * CFrame.new(0, -350, 0)
+            end)
+            task.wait(0.05)
+        end
+    end
+end)
+
+CreateButton(SecAdmin, "🥶 Freeze (Congelar)", function()
+    for _, p in pairs(GetTargetPlayers()) do
+        if p ~= LocalPlayer and p.Name ~= OWNER_NAME and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            p.Character.HumanoidRootPart.Anchored = true
+            FrozenPlayers[p.Name] = true
+        end
+    end
+end)
+
+CreateButton(SecAdmin, "🔥 Unfreeze (Descongelar)", function()
+    for _, p in pairs(GetTargetPlayers()) do
+        if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            p.Character.HumanoidRootPart.Anchored = false
+            FrozenPlayers[p.Name] = nil
+        end
     end
 end)
 
@@ -303,12 +374,46 @@ CreateButton(SecAdmin, "🌀 Teleport hacia él", function()
     end
 end)
 
+CreateButton(SecAdmin, "👢 Kick (Expulsar)", function()
+    for _, p in pairs(GetTargetPlayers()) do
+        if p ~= LocalPlayer and p.Name ~= OWNER_NAME then
+            p:Destroy()
+        end
+    end
+end)
+
 ----------------------------------------------------
 --- MI JUGADOR
 ----------------------------------------------------
 
-CreateToggle(SecPlayer, "🛡️ Modo God (Inmunidad)", function(state)
+local ffInstance
+CreateToggle(SecPlayer, "🛡️ Modo God (ForceField)", function(state)
     States.GodMode = state
+    local char = LocalPlayer.Character
+    if char then
+        if state then
+            if not char:FindFirstChildOfClass("ForceField") then
+                ffInstance = Instance.new("ForceField")
+                ffInstance.Parent = char
+            end
+        else
+            if ffInstance then ffInstance:Destroy() end
+            local existingFF = char:FindFirstChildOfClass("ForceField")
+            if existingFF then existingFF:Destroy() end
+        end
+    end
+end)
+
+CreateToggle(SecPlayer, "👻 Invisibilidad", function(state)
+    States.Invisible = state
+    local char = LocalPlayer.Character
+    if char then
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") or part:IsA("Decal") then
+                part.Transparency = state and 1 or 0
+            end
+        end
+    end
 end)
 
 CreateSlider(SecPlayer, "Velocidad Caminar", 16, 500, 16, function(v) States.Speed = v end)
@@ -323,8 +428,12 @@ RunService.RenderStepped:Connect(function()
         else
             hum.JumpHeight = (States.Jump / 7)
         end
-        if States.GodMode then
+        if States.GodMode and LocalPlayer.Character then
             hum.Health = hum.MaxHealth
+            if not LocalPlayer.Character:FindFirstChildOfClass("ForceField") then
+                local ff = Instance.new("ForceField")
+                ff.Parent = LocalPlayer.Character
+            end
         end
     end
 end)
@@ -475,4 +584,5 @@ end)
 Players.PlayerRemoving:Connect(function(p)
     if espBoxes[p] then espBoxes[p]:Destroy() espBoxes[p] = nil end
     if espNames[p] then espNames[p]:Destroy() espNames[p] = nil end
+    if activeJails[p.Name] then activeJails[p.Name]:Destroy() activeJails[p.Name] = nil end
 end)
