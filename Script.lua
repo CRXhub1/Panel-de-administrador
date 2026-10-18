@@ -1,588 +1,330 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local CoreGui = game:GetService("CoreGui")
+-- ==============================================================================
+--              SUPER CIRCULAR MOTION UI - ULTIMATE EDITION
+-- ==============================================================================
+-- Desarrollado con arquitectura modular para ejecutor / Roblox Studio.
+-- Sistema de física no invasivo: Mantiene control total de cámara y movimiento.
+-- ==============================================================================
+
+local Services = setmetatable({}, {
+    __index = function(t, k)
+        return game:GetService(k)
+    end
+})
+
+local Players = Services.Players
+local RunService = Services.RunService
+local TweenService = Services.TweenService
+local UserInputService = Services.UserInputService
+local CoreGui = Services.CoreGui
+
 local LocalPlayer = Players.LocalPlayer
+local Mouse = LocalPlayer:GetMouse()
 
-local OWNER_NAME = "sm07070707tycon"
-
--- Destruye panel previo
-if CoreGui:FindFirstChild("DeltaMegaAdminPanel") then
-    CoreGui.DeltaMegaAdminPanel:Destroy()
-end
-
--- Estados
-local States = {
-    Fly = false,
-    Noclip = false,
-    ESPBox = false,
-    ESPName = false,
-    GodMode = false,
-    Invisible = false,
-    Speed = 16,
-    Jump = 50,
-    FlySpeed = 50,
-    TargetPlayer = ""
+-- ------------------------------------------------------------------------------
+-- CONFIGURACIÓN POR DEFECTO
+-- ------------------------------------------------------------------------------
+local Config = {
+    Enabled = false,
+    CircleSpeed = 50,          -- Velocidad de rotación
+    CircleRadius = 90,         -- Fuerza / Radio del movimiento
+    UsePhysicsMethod = true,   -- true = AssemblyLinearVelocity (Cámara libre), false = CFrame
+    Theme = {
+        Background = Color3.fromRGB(18, 18, 18),
+        Header = Color3.fromRGB(24, 24, 24),
+        Accent = Color3.fromRGB(255, 59, 0),
+        Button = Color3.fromRGB(32, 32, 32),
+        Text = Color3.fromRGB(255, 255, 255),
+        TextMuted = Color3.fromRGB(150, 150, 150)
+    }
 }
 
-local JailedPlayers, FrozenPlayers, espBoxes, espNames, activeJails = {}, {}, {}, {}, {}
-
--- UI Principal
+-- ------------------------------------------------------------------------------
+-- SISTEMA DE INTERFAZ GRÁFICA (UI BUILDER)
+-- ------------------------------------------------------------------------------
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "DeltaMegaAdminPanel"
-ScreenGui.Parent = CoreGui
+ScreenGui.Name = "UltimateCircleMotionUI"
 ScreenGui.ResetOnSpawn = false
 
-local MainFrame = Instance.new("Frame")
-MainFrame.Size = UDim2.new(0, 520, 0, 340)
-MainFrame.Position = UDim2.new(0.5, -260, 0.5, -170)
-MainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-MainFrame.BorderSizePixel = 0
-MainFrame.Active = true
-MainFrame.Draggable = true
-MainFrame.Parent = ScreenGui
+-- Protección para inyectar en CoreGui si está disponible
+local success, _ = pcall(function()
+    ScreenGui.Parent = CoreGui
+end)
+if not success or not ScreenGui.Parent then
+    ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+end
 
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 10)
-UICorner.Parent = MainFrame
+-- Funciones auxiliares de UI
+local function AddCorner(instance, radius)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, radius or 8)
+    corner.Parent = instance
+    return corner
+end
 
--- Botón Flotante para Abrir
+local function AddStroke(instance, color, thickness)
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = color or Config.Theme.Accent
+    stroke.Thickness = thickness or 1.5
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    stroke.Parent = instance
+    return stroke
+end
+
+-- ------------------------------------------------------------------------------
+-- 1. BOTÓN FLOTANTE (DRAGGABLE TOGGLE BUTTON)
+-- ------------------------------------------------------------------------------
 local ToggleButton = Instance.new("TextButton")
+ToggleButton.Name = "DraggableUIBtn"
 ToggleButton.Size = UDim2.new(0, 50, 0, 50)
-ToggleButton.Position = UDim2.new(0.05, 0, 0.05, 0)
-ToggleButton.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-ToggleButton.Text = "🛠️"
-ToggleButton.TextSize = 24
-ToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-ToggleButton.Visible = false
+ToggleButton.Position = UDim2.new(0, 30, 0, 30)
+ToggleButton.BackgroundColor3 = Config.Theme.Background
+ToggleButton.TextColor3 = Config.Theme.Accent
+ToggleButton.Text = "UI"
+ToggleButton.Font = Enum.Font.GothamBold
+ToggleButton.TextSize = 16
+ToggleButton.AutoButtonColor = false
 ToggleButton.Parent = ScreenGui
 
-local TCorner = Instance.new("UICorner")
-TCorner.CornerRadius = UDim.new(0, 25)
-TCorner.Parent = ToggleButton
+AddCorner(ToggleButton, 12)
+AddStroke(ToggleButton, Config.Theme.Accent, 2)
 
-----------------------------------------------------
--- BOTÓN DE CERRAR ("✕") A LA IZQUIERDA
-----------------------------------------------------
-local MinBtn = Instance.new("TextButton")
-MinBtn.Size = UDim2.new(0, 40, 0, 40)
-MinBtn.Position = UDim2.new(0, 5, 0, 5)
-MinBtn.BackgroundColor3 = Color3.fromRGB(220, 40, 40)
-MinBtn.BackgroundTransparency = 0.1
-MinBtn.Text = "✕"
-MinBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-MinBtn.Font = Enum.Font.GothamBold
-MinBtn.TextSize = 22
-MinBtn.Parent = MainFrame
+-- Lógica para arrastrar el botón flotante
+local dragging, dragInput, dragStart, startPos
 
-local MinBtnCorner = Instance.new("UICorner")
-MinBtnCorner.CornerRadius = UDim.new(0, 8)
-MinBtnCorner.Parent = MinBtn
+local function updateDrag(input)
+    local delta = input.Position - dragStart
+    local newPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    TweenService:Create(ToggleButton, TweenInfo.new(0.08), {Position = newPos}):Play()
+end
 
-MinBtn.MouseButton1Click:Connect(function()
+ToggleButton.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = ToggleButton.Position
+        
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+ToggleButton.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        updateDrag(input)
+    end
+end)
+
+-- ------------------------------------------------------------------------------
+-- 2. PANEL PRINCIPAL DE CONTROL
+-- ------------------------------------------------------------------------------
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 320, 0, 260)
+MainFrame.Position = UDim2.new(0, 90, 0, 30)
+MainFrame.BackgroundColor3 = Config.Theme.Background
+MainFrame.Visible = false
+MainFrame.ClipsDescendants = true
+MainFrame.Parent = ScreenGui
+
+AddCorner(MainFrame, 12)
+AddStroke(MainFrame, Config.Theme.Accent, 2)
+
+-- Encabezado
+local Header = Instance.new("Frame")
+Header.Name = "Header"
+Header.Size = UDim2.new(1, 0, 0, 45)
+Header.BackgroundColor3 = Config.Theme.Header
+Header.Parent = MainFrame
+
+AddCorner(Header, 12)
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, -20, 1, 0)
+Title.Position = UDim2.new(0, 15, 0, 0)
+Title.BackgroundTransparency = 1
+Title.Text = "⚡ CIRCLE MOTION V2"
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 15
+Title.TextColor3 = Config.Theme.Accent
+Title.TextXAlignment = Enum.TextXAlignment.Left
+Title.Parent = Header
+
+-- Botón dentro del menú para cerrar
+local CloseBtn = Instance.new("TextButton")
+CloseBtn.Size = UDim2.new(0, 30, 0, 30)
+CloseBtn.Position = UDim2.new(1, -35, 0.5, -15)
+CloseBtn.BackgroundTransparency = 1
+CloseBtn.Text = "✕"
+CloseBtn.Font = Enum.Font.GothamBold
+CloseBtn.TextSize = 16
+CloseBtn.TextColor3 = Config.Theme.TextMuted
+CloseBtn.Parent = Header
+
+CloseBtn.MouseButton1Click:Connect(function()
     MainFrame.Visible = false
-    ToggleButton.Visible = true
 end)
 
 ToggleButton.MouseButton1Click:Connect(function()
-    MainFrame.Visible = true
-    ToggleButton.Visible = false
+    MainFrame.Visible = not MainFrame.Visible
 end)
 
--- Menú Lateral
-local Sidebar = Instance.new("Frame")
-Sidebar.Size = UDim2.new(0, 130, 1, -45)
-Sidebar.Position = UDim2.new(0, 0, 0, 45)
-Sidebar.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-Sidebar.BorderSizePixel = 0
-Sidebar.Parent = MainFrame
-
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(0, 360, 0, 40)
-Title.Position = UDim2.new(0, 50, 0, 5)
-Title.Text = "👑 DELTA ADMIN PANEL"
-Title.TextColor3 = Color3.fromRGB(0, 180, 255)
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 14
-Title.BackgroundTransparency = 1
-Title.Parent = MainFrame
-
+-- Contenedor de Elementos
 local ContentContainer = Instance.new("Frame")
-ContentContainer.Size = UDim2.new(1, -145, 1, -55)
-ContentContainer.Position = UDim2.new(0, 137, 0, 45)
+ContentContainer.Size = UDim2.new(1, -30, 1, -60)
+ContentContainer.Position = UDim2.new(0, 15, 0, 55)
 ContentContainer.BackgroundTransparency = 1
 ContentContainer.Parent = MainFrame
 
-local Sections, Tabs = {}, {}
+-- Botón Principal Toggle (ON / OFF)
+local MotionToggleBtn = Instance.new("TextButton")
+MotionToggleBtn.Size = UDim2.new(1, 0, 0, 45)
+MotionToggleBtn.Position = UDim2.new(0, 0, 0, 5)
+MotionToggleBtn.BackgroundColor3 = Config.Theme.Button
+MotionToggleBtn.Text = "ESTADO: DESACTIVADO"
+MotionToggleBtn.Font = Enum.Font.GothamBold
+MotionToggleBtn.TextSize = 13
+MotionToggleBtn.TextColor3 = Config.Theme.Text
+MotionToggleBtn.Parent = ContentContainer
 
-local function CreateSection(name)
-    local Frame = Instance.new("ScrollingFrame")
-    Frame.Size = UDim2.new(1, 0, 1, 0)
-    Frame.BackgroundTransparency = 1
-    Frame.CanvasSize = UDim2.new(0, 0, 2.5, 0)
-    Frame.ScrollBarThickness = 4
-    Frame.Visible = false
-    Frame.Parent = ContentContainer
+AddCorner(MotionToggleBtn, 8)
+local ToggleStroke = AddStroke(MotionToggleBtn, Color3.fromRGB(60, 60, 60), 1)
 
-    local UIList = Instance.new("UIListLayout")
-    UIList.Padding = UDim.new(0, 8)
-    UIList.Parent = Frame
-
-    Sections[name] = Frame
-
-    local TabBtn = Instance.new("TextButton")
-    TabBtn.Size = UDim2.new(0.9, 0, 0, 35)
-    TabBtn.Position = UDim2.new(0.05, 0, 0, 10 + (#Tabs * 40))
-    TabBtn.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
-    TabBtn.Text = name
-    TabBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
-    TabBtn.Font = Enum.Font.GothamSemibold
-    TabBtn.TextSize = 11
-    TabBtn.Parent = Sidebar
-
-    local TabCorner = Instance.new("UICorner")
-    TabCorner.CornerRadius = UDim.new(0, 6)
-    TabCorner.Parent = TabBtn
-
-    TabBtn.MouseButton1Click:Connect(function()
-        for _, sec in pairs(Sections) do sec.Visible = false end
-        for _, tab in pairs(Tabs) do tab.BackgroundColor3 = Color3.fromRGB(25, 25, 25) end
-        Frame.Visible = true
-        TabBtn.BackgroundColor3 = Color3.fromRGB(0, 130, 255)
-    end)
-
-    table.insert(Tabs, TabBtn)
-    return Frame
-end
-
-local SecAdmin = CreateSection("⚡ Comandos Admin")
-local SecPlayer = CreateSection("👤 Mi Jugador")
-local SecMovement = CreateSection("🏃 Movimiento")
-local SecVisuals = CreateSection("👁️ Visuales")
-
-if #Tabs > 0 then Tabs[1].BackgroundColor3 = Color3.fromRGB(0, 130, 255) end
-Sections["⚡ Comandos Admin"].Visible = true
-
-local function GetTargetPlayers()
-    if States.TargetPlayer:lower() == "all" or States.TargetPlayer == "" then 
-        return Players:GetPlayers() 
-    end
-    local found = {}
-    for _, p in pairs(Players:GetPlayers()) do
-        if p.Name:lower():sub(1, #States.TargetPlayer) == States.TargetPlayer:lower() or 
-           p.DisplayName:lower():sub(1, #States.TargetPlayer) == States.TargetPlayer:lower() then
-            table.insert(found, p)
-        end
-    end
-    return found
-end
-
-local function CreateButton(parent, text, callback)
-    local Btn = Instance.new("TextButton")
-    Btn.Size = UDim2.new(1, -10, 0, 35)
-    Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-    Btn.Text = text
-    Btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    Btn.Font = Enum.Font.GothamSemibold
-    Btn.TextSize = 12
-    Btn.Parent = parent
-
-    local Corner = Instance.new("UICorner")
-    Corner.CornerRadius = UDim.new(0, 6)
-    Corner.Parent = Btn
-
-    Btn.MouseButton1Click:Connect(callback)
-end
-
-local function CreateToggle(parent, text, callback)
-    local Btn = Instance.new("TextButton")
-    Btn.Size = UDim2.new(1, -10, 0, 35)
-    Btn.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
-    Btn.Text = text .. ": OFF"
-    Btn.TextColor3 = Color3.fromRGB(255, 100, 100)
-    Btn.Font = Enum.Font.GothamSemibold
-    Btn.TextSize = 12
-    Btn.Parent = parent
-
-    local Corner = Instance.new("UICorner")
-    Corner.CornerRadius = UDim.new(0, 6)
-    Corner.Parent = Btn
-
-    local state = false
-    Btn.MouseButton1Click:Connect(function()
-        state = not state
-        Btn.Text = text .. (state and ": ON" or ": OFF")
-        Btn.TextColor3 = state and Color3.fromRGB(100, 255, 100) or Color3.fromRGB(255, 100, 100)
-        callback(state)
-    end)
-end
-
-local function CreateSlider(parent, text, min, max, default, callback)
-    local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(1, -10, 0, 45)
-    Frame.BackgroundTransparency = 1
-    Frame.Parent = parent
-
-    local Box = Instance.new("TextBox")
-    Box.Size = UDim2.new(1, 0, 1, 0)
-    Box.BackgroundColor3 = Color3.fromRGB(32, 32, 32)
-    Box.Text = text .. " [" .. default .. "]"
-    Box.TextColor3 = Color3.fromRGB(240, 240, 240)
-    Box.Font = Enum.Font.Gotham
-    Box.TextSize = 12
-    Box.Parent = Frame
-
-    local Corner = Instance.new("UICorner")
-    Corner.CornerRadius = UDim.new(0, 6)
-    Corner.Parent = Box
-
-    Box.FocusLost:Connect(function()
-        local val = tonumber(Box.Text:match("%d+")) or default
-        val = math.clamp(val, min, max)
-        Box.Text = text .. " [" .. val .. "]"
-        callback(val)
-    end)
-end
-
--- Input Selector de Objetivos
-local PlayerSelector = Instance.new("TextBox")
-PlayerSelector.Size = UDim2.new(1, -10, 0, 40)
-PlayerSelector.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-PlayerSelector.PlaceholderText = "Nombre Jugador (Escribe 'all' para todos)"
-PlayerSelector.Text = ""
-PlayerSelector.TextColor3 = Color3.fromRGB(255, 255, 255)
-PlayerSelector.Font = Enum.Font.GothamBold
-PlayerSelector.TextSize = 12
-PlayerSelector.Parent = SecAdmin
-
-local PSCorner = Instance.new("UICorner")
-PSCorner.CornerRadius = UDim.new(0, 6)
-PSCorner.Parent = PlayerSelector
-
-PlayerSelector:GetPropertyChangedSignal("Text"):Connect(function()
-    States.TargetPlayer = PlayerSelector.Text
-end)
-
-----------------------------------------------------
---- COMANDOS DE ADMINISTRADOR
-----------------------------------------------------
-
--- Construye la celda con 6 paredes físicas sólidas
-local function BuildSolidJail(cf)
-    local Model = Instance.new("Model")
-    Model.Name = "JailCell"
-    local size, thick = 8, 0.6
-    local offsets = {
-        {Vector3.new(0, -size/2, 0), Vector3.new(size, thick, size)}, -- Piso
-        {Vector3.new(0, size/2, 0), Vector3.new(size, thick, size)},  -- Techo
-        {Vector3.new(-size/2, 0, 0), Vector3.new(thick, size, size)}, -- Pared Izq
-        {Vector3.new(size/2, 0, 0), Vector3.new(thick, size, size)},  -- Pared Der
-        {Vector3.new(0, 0, -size/2), Vector3.new(size, size, thick)}, -- Pared Frente
-        {Vector3.new(0, 0, size/2), Vector3.new(size, size, thick)}   -- Pared Atrás
-    }
-    for _, w in ipairs(offsets) do
-        local p = Instance.new("Part")
-        p.Size = w[2]
-        p.CFrame = cf * CFrame.new(w[1])
-        p.Anchored = true
-        p.CanCollide = true
-        p.Transparency = 0.3
-        p.Color = Color3.fromRGB(255, 30, 30)
-        p.Material = Enum.Material.Neon
-        p.Parent = Model
-    end
-    Model.Parent = workspace
-    return Model
-end
-
-CreateButton(SecAdmin, "⛓️ Jail (Enjaular)", function()
-    for _, p in pairs(GetTargetPlayers()) do
-        if p ~= LocalPlayer and p.Name ~= OWNER_NAME and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            if activeJails[p.Name] then activeJails[p.Name]:Destroy() end
-            local targetCF = p.Character.HumanoidRootPart.CFrame
-            activeJails[p.Name] = BuildSolidJail(targetCF)
-            JailedPlayers[p.Name] = targetCF
-        end
-    end
-end)
-
-CreateButton(SecAdmin, "🔓 Unjail (Liberar)", function()
-    for _, p in pairs(GetTargetPlayers()) do
-        if activeJails[p.Name] then
-            activeJails[p.Name]:Destroy()
-            activeJails[p.Name] = nil
-            JailedPlayers[p.Name] = nil
-        end
-    end
-end)
-
--- Bucle de bloqueo para mantener al jugador dentro del Jail
-RunService.Heartbeat:Connect(function()
-    for name, cf in pairs(JailedPlayers) do
-        local p = Players:FindFirstChild(name)
-        if p and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            p.Character.HumanoidRootPart.CFrame = cf
-        end
-    end
-end)
-
--- Matar por caída al vacío usando Noclip + Impulso Físico
-CreateButton(SecAdmin, "💀 Kill (Caída al Vacío)", function()
-    for _, p in pairs(GetTargetPlayers()) do
-        if p ~= LocalPlayer and p.Name ~= OWNER_NAME and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            task.spawn(function()
-                local root = p.Character.HumanoidRootPart
-                -- Desactiva colisiones del personaje para que atraviese el mapa
-                for _, part in pairs(p.Character:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                    end
-                end
-                -- Manda el personaje a la zona de muerte subterránea
-                root.CFrame = root.CFrame * CFrame.new(0, -350, 0)
-            end)
-            task.wait(0.05)
-        end
-    end
-end)
-
-CreateButton(SecAdmin, "🥶 Freeze (Congelar)", function()
-    for _, p in pairs(GetTargetPlayers()) do
-        if p ~= LocalPlayer and p.Name ~= OWNER_NAME and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            p.Character.HumanoidRootPart.Anchored = true
-            FrozenPlayers[p.Name] = true
-        end
-    end
-end)
-
-CreateButton(SecAdmin, "🔥 Unfreeze (Descongelar)", function()
-    for _, p in pairs(GetTargetPlayers()) do
-        if p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            p.Character.HumanoidRootPart.Anchored = false
-            FrozenPlayers[p.Name] = nil
-        end
-    end
-end)
-
-CreateButton(SecAdmin, "🌀 Teleport hacia él", function()
-    for _, p in pairs(GetTargetPlayers()) do
-        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-            if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                LocalPlayer.Character.HumanoidRootPart.CFrame = p.Character.HumanoidRootPart.CFrame * CFrame.new(0, 2, -3)
-            end
-            break
-        end
-    end
-end)
-
-CreateButton(SecAdmin, "👢 Kick (Expulsar)", function()
-    for _, p in pairs(GetTargetPlayers()) do
-        if p ~= LocalPlayer and p.Name ~= OWNER_NAME then
-            p:Destroy()
-        end
-    end
-end)
-
-----------------------------------------------------
---- MI JUGADOR
-----------------------------------------------------
-
-local ffInstance
-CreateToggle(SecPlayer, "🛡️ Modo God (ForceField)", function(state)
-    States.GodMode = state
-    local char = LocalPlayer.Character
-    if char then
-        if state then
-            if not char:FindFirstChildOfClass("ForceField") then
-                ffInstance = Instance.new("ForceField")
-                ffInstance.Parent = char
-            end
-        else
-            if ffInstance then ffInstance:Destroy() end
-            local existingFF = char:FindFirstChildOfClass("ForceField")
-            if existingFF then existingFF:Destroy() end
-        end
-    end
-end)
-
-CreateToggle(SecPlayer, "👻 Invisibilidad", function(state)
-    States.Invisible = state
-    local char = LocalPlayer.Character
-    if char then
-        for _, part in pairs(char:GetDescendants()) do
-            if part:IsA("BasePart") or part:IsA("Decal") then
-                part.Transparency = state and 1 or 0
-            end
-        end
-    end
-end)
-
-CreateSlider(SecPlayer, "Velocidad Caminar", 16, 500, 16, function(v) States.Speed = v end)
-CreateSlider(SecPlayer, "Poder de Salto", 50, 1000, 50, function(v) States.Jump = v end)
-
-RunService.RenderStepped:Connect(function()
-    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
-        local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
-        hum.WalkSpeed = States.Speed
-        if hum.UseJumpPower then
-            hum.JumpPower = States.Jump
-        else
-            hum.JumpHeight = (States.Jump / 7)
-        end
-        if States.GodMode and LocalPlayer.Character then
-            hum.Health = hum.MaxHealth
-            if not LocalPlayer.Character:FindFirstChildOfClass("ForceField") then
-                local ff = Instance.new("ForceField")
-                ff.Parent = LocalPlayer.Character
-            end
-        end
-    end
-end)
-
-----------------------------------------------------
---- MOVIMIENTO
-----------------------------------------------------
-
-local flyVelo
-CreateToggle(SecMovement, "Vuelo (Fly)", function(state)
-    States.Fly = state
-    local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-    local root = char.HumanoidRootPart
-
-    if state then
-        flyVelo = Instance.new("BodyVelocity")
-        flyVelo.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-        flyVelo.Velocity = Vector3.new(0, 0, 0)
-        flyVelo.Parent = root
-
-        task.spawn(function()
-            while States.Fly and char and root and flyVelo and flyVelo.Parent do
-                local dir = Vector3.new(0, 0, 0)
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    dir = hum.MoveDirection * States.FlySpeed
-                    if hum.Jump then
-                        dir = dir + Vector3.new(0, States.FlySpeed, 0)
-                    end
-                end
-                flyVelo.Velocity = dir
-                RunService.RenderStepped:Wait()
-            end
-        end)
+MotionToggleBtn.MouseButton1Click:Connect(function()
+    Config.Enabled = not Config.Enabled
+    if Config.Enabled then
+        MotionToggleBtn.Text = "ESTADO: ACTIVADO (CIRCULANDO)"
+        MotionToggleBtn.TextColor3 = Config.Theme.Accent
+        ToggleStroke.Color = Config.Theme.Accent
     else
-        if flyVelo then
-            flyVelo:Destroy()
-            flyVelo = nil
-        end
+        MotionToggleBtn.Text = "ESTADO: DESACTIVADO"
+        MotionToggleBtn.TextColor3 = Config.Theme.Text
+        ToggleStroke.Color = Color3.fromRGB(60, 60, 60)
     end
 end)
 
-CreateSlider(SecMovement, "Velocidad Vuelo", 10, 300, 50, function(v) States.FlySpeed = v end)
-CreateToggle(SecMovement, "Noclip (Paredes)", function(state) States.Noclip = state end)
+-- Deslizador 1: Velocidad (Speed)
+local SpeedLabel = Instance.new("TextLabel")
+SpeedLabel.Size = UDim2.new(1, 0, 0, 20)
+SpeedLabel.Position = UDim2.new(0, 0, 0, 65)
+SpeedLabel.BackgroundTransparency = 1
+SpeedLabel.Text = "Velocidad de Giro: " .. tostring(Config.CircleSpeed)
+SpeedLabel.Font = Enum.Font.Gotham
+SpeedLabel.TextSize = 12
+SpeedLabel.TextColor3 = Config.Theme.TextMuted
+SpeedLabel.TextXAlignment = Enum.TextXAlignment.Left
+SpeedLabel.Parent = ContentContainer
 
-RunService.Stepped:Connect(function()
-    if States.Noclip and LocalPlayer.Character then
-        for _, part in pairs(LocalPlayer.Character:GetDescendants()) do
-            if part:IsA("BasePart") then
-                part.CanCollide = false
-            end
-        end
+local SpeedPlusBtn = Instance.new("TextButton")
+SpeedPlusBtn.Size = UDim2.new(0, 60, 0, 30)
+SpeedPlusBtn.Position = UDim2.new(1, -60, 0, 85)
+SpeedPlusBtn.BackgroundColor3 = Config.Theme.Button
+SpeedPlusBtn.Text = "+10"
+SpeedPlusBtn.Font = Enum.Font.GothamBold
+SpeedPlusBtn.TextColor3 = Config.Theme.Text
+SpeedPlusBtn.Parent = ContentContainer
+AddCorner(SpeedPlusBtn, 6)
+
+local SpeedMinusBtn = Instance.new("TextButton")
+SpeedMinusBtn.Size = UDim2.new(0, 60, 0, 30)
+SpeedMinusBtn.Position = UDim2.new(1, -125, 0, 85)
+SpeedMinusBtn.BackgroundColor3 = Config.Theme.Button
+SpeedMinusBtn.Text = "-10"
+SpeedMinusBtn.Font = Enum.Font.GothamBold
+SpeedMinusBtn.TextColor3 = Config.Theme.Text
+SpeedMinusBtn.Parent = ContentContainer
+AddCorner(SpeedMinusBtn, 6)
+
+SpeedPlusBtn.MouseButton1Click:Connect(function()
+    Config.CircleSpeed = math.min(Config.CircleSpeed + 10, 200)
+    SpeedLabel.Text = "Velocidad de Giro: " .. tostring(Config.CircleSpeed)
+end)
+
+SpeedMinusBtn.MouseButton1Click:Connect(function()
+    Config.CircleSpeed = math.max(Config.CircleSpeed - 10, 10)
+    SpeedLabel.Text = "Velocidad de Giro: " .. tostring(Config.CircleSpeed)
+end)
+
+-- Deslizador 2: Radio (Radius)
+local RadiusLabel = Instance.new("TextLabel")
+RadiusLabel.Size = UDim2.new(1, 0, 0, 20)
+RadiusLabel.Position = UDim2.new(0, 0, 0, 125)
+RadiusLabel.BackgroundTransparency = 1
+RadiusLabel.Text = "Radio del Círculo: " .. tostring(Config.CircleRadius)
+RadiusLabel.Font = Enum.Font.Gotham
+RadiusLabel.TextSize = 12
+RadiusLabel.TextColor3 = Config.Theme.TextMuted
+RadiusLabel.TextXAlignment = Enum.TextXAlignment.Left
+RadiusLabel.Parent = ContentContainer
+
+local RadiusPlusBtn = Instance.new("TextButton")
+RadiusPlusBtn.Size = UDim2.new(0, 60, 0, 30)
+RadiusPlusBtn.Position = UDim2.new(1, -60, 0, 145)
+RadiusPlusBtn.BackgroundColor3 = Config.Theme.Button
+RadiusPlusBtn.Text = "+10"
+RadiusPlusBtn.Font = Enum.Font.GothamBold
+RadiusPlusBtn.TextColor3 = Config.Theme.Text
+RadiusPlusBtn.Parent = ContentContainer
+AddCorner(RadiusPlusBtn, 6)
+
+RadiusMinusBtn = Instance.new("TextButton")
+RadiusMinusBtn.Size = UDim2.new(0, 60, 0, 30)
+RadiusMinusBtn.Position = UDim2.new(1, -125, 0, 145)
+RadiusMinusBtn.BackgroundColor3 = Config.Theme.Button
+RadiusMinusBtn.Text = "-10"
+RadiusMinusBtn.Font = Enum.Font.GothamBold
+RadiusMinusBtn.TextColor3 = Config.Theme.Text
+RadiusMinusBtn.Parent = ContentContainer
+AddCorner(RadiusMinusBtn, 6)
+
+RadiusPlusBtn.MouseButton1Click:Connect(function()
+    Config.CircleRadius = math.min(Config.CircleRadius + 10, 300)
+    RadiusLabel.Text = "Radio del Círculo: " .. tostring(Config.CircleRadius)
+end)
+
+RadiusMinusBtn.MouseButton1Click:Connect(function()
+    Config.CircleRadius = math.max(Config.CircleRadius - 10, 10)
+    RadiusLabel.Text = "Radio del Círculo: " .. tostring(Config.CircleRadius)
+end)
+
+-- ------------------------------------------------------------------------------
+-- 3. MOTOR DE FÍSICA Y MOVIMIENTO CIRCULAR
+-- ------------------------------------------------------------------------------
+local angleAccumulator = 0
+
+RunService.RenderStepped:Connect(function(deltaTime)
+    if not Config.Enabled then return end
+    
+    local character = LocalPlayer.Character
+    if not character then return end
+    
+    local rootPart = character:FindFirstChild("HumanoidRootPart")
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    
+    if rootPart and humanoid and humanoid.Health > 0 then
+        -- Incrementar el ángulo en función del tiempo para mantener consistencia de FPS
+        angleAccumulator = angleAccumulator + (Config.CircleSpeed * deltaTime)
+        
+        -- Calcular vectores circulares mediante trigonometría
+        local velX = math.cos(angleAccumulator) * Config.CircleRadius
+        local velZ = math.sin(angleAccumulator) * Config.CircleRadius
+        
+        -- Aplicar velocidad lineal sobre HumanoidRootPart sin alterar el eje Y (gravedad intacta)
+        rootPart.AssemblyLinearVelocity = Vector3.new(velX, rootPart.AssemblyLinearVelocity.Y, velZ)
     end
 end)
 
-----------------------------------------------------
---- VISUALES
-----------------------------------------------------
-
-local function CreateESPBox(player)
-    if player == LocalPlayer then return end
-    local function addBox(char)
-        if espBoxes[player] then espBoxes[player]:Destroy() end
-        local root = char:WaitForChild("HumanoidRootPart", 5)
-        if root then
-            local Box = Instance.new("BoxHandleAdornment")
-            Box.Size = Vector3.new(4, 5.5, 4)
-            Box.Color3 = Color3.fromRGB(255, 0, 0)
-            Box.AlwaysOnTop = true
-            Box.ZIndex = 6
-            Box.Transparency = 0.4
-            Box.Adornee = root
-            Box.Parent = ScreenGui
-            espBoxes[player] = Box
-        end
-    end
-    if player.Character then addBox(player.Character) end
-    player.CharacterAdded:Connect(addBox)
-end
-
-local function CreateESPName(player)
-    if player == LocalPlayer then return end
-    local function addNameTag(char)
-        if espNames[player] then espNames[player]:Destroy() end
-        local head = char:WaitForChild("Head", 5)
-        if head then
-            local Billboard = Instance.new("BillboardGui")
-            Billboard.Name = "ESPNameTag"
-            Billboard.Adornee = head
-            Billboard.Size = UDim2.new(0, 150, 0, 30)
-            Billboard.StudsOffset = Vector3.new(0, 2.5, 0)
-            Billboard.AlwaysOnTop = true
-            Billboard.Parent = ScreenGui
-
-            local Label = Instance.new("TextLabel")
-            Label.Size = UDim2.new(1, 0, 1, 0)
-            Label.BackgroundTransparency = 1
-            Label.Text = player.DisplayName .. " (@" .. player.Name .. ")"
-            Label.TextColor3 = Color3.fromRGB(0, 255, 150)
-            Label.TextStrokeTransparency = 0
-            Label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-            Label.Font = Enum.Font.GothamBold
-            Label.TextSize = 13
-            Label.Parent = Billboard
-
-            espNames[player] = Billboard
-        end
-    end
-    if player.Character then addNameTag(player.Character) end
-    player.CharacterAdded:Connect(addNameTag)
-end
-
-CreateToggle(SecVisuals, "ESP Cuadrado Rojo", function(state)
-    States.ESPBox = state
-    if state then
-        for _, p in pairs(Players:GetPlayers()) do CreateESPBox(p) end
-        Players.PlayerAdded:Connect(CreateESPBox)
-    else
-        for _, box in pairs(espBoxes) do box:Destroy() end
-        espBoxes = {}
-    end
+-- Restablecer referencias al reaparecer el personaje
+LocalPlayer.CharacterAdded:Connect(function(newCharacter)
+    newCharacter:WaitForChild("HumanoidRootPart")
 end)
 
-CreateToggle(SecVisuals, "ESP Jugadores (Nombres)", function(state)
-    States.ESPName = state
-    if state then
-        for _, p in pairs(Players:GetPlayers()) do CreateESPName(p) end
-        Players.PlayerAdded:Connect(CreateESPName)
-    else
-        for _, tag in pairs(espNames) do tag:Destroy() end
-        espNames = {}
-    end
-end)
-
-RunService.RenderStepped:Connect(function()
-    if States.ESPName and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
-        local myRoot = LocalPlayer.Character.HumanoidRootPart
-        for player, tag in pairs(espNames) do
-            if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and tag:FindFirstChildOfClass("TextLabel") then
-                local dist = math.floor((myRoot.Position - player.Character.HumanoidRootPart.Position).Magnitude)
-                tag.TextLabel.Text = player.DisplayName .. " [" .. dist .. "m]"
-            end
-        end
-    end
-end)
-
-Players.PlayerRemoving:Connect(function(p)
-    if espBoxes[p] then espBoxes[p]:Destroy() espBoxes[p] = nil end
-    if espNames[p] then espNames[p]:Destroy() espNames[p] = nil end
-    if activeJails[p.Name] then activeJails[p.Name]:Destroy() activeJails[p.Name] = nil end
-end)
+print("[SUCCES] Ultimate Circle Motion Script cargado correctamente.")
